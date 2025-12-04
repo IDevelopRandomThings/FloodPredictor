@@ -7,3 +7,5 @@ logs/
 .env
 .vscode/
 .ipynb_checkpoints/
+fix.py
+TestAPI.py

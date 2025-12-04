@@ -1,47 +1,65 @@
 # src/predict.py
-import joblib
 import pandas as pd
+import joblib
+from preprocess import transform_preprocess
 
-# Load model and encoder
+# Load trained model and encoder
 model = joblib.load("models/flood_xgb_model.pkl")
-le_subdistrict = joblib.load("models/subdistrict_encoder.pkl")
+le_subdistrict = joblib.load("models/kelurahan_encoder.pkl")
 
-def preprocess_input(df):
-    # Datetime features
-    df["local_datetime"] = pd.to_datetime(df["local_datetime"])
-    df["hour"] = df["local_datetime"].dt.hour
-    df["day"] = df["local_datetime"].dt.day
-    df["month"] = df["local_datetime"].dt.month
+def clean_input(df):
+    """Clean the input to match training-time formatting"""
+    df = df.copy()
 
-    # Subdistrict encoding
-    df["subdistrict_id"] = le_subdistrict.transform(df["subdistrict_name"])
+    if "subdistrict_name" in df.columns:
+        df["subdistrict_name"] = df["subdistrict_name"].str.lower()
 
-    # Wind direction encoding
-    wd_map = {"N":0, "NE":1, "E":2, "SE":3, "S":4, "SW":5, "W":6, "NW":7}
-    df["wd_code"] = df["wd"].map(wd_map)
+    numeric_cols = [
+        "t", "hu", "ws", "tcc", "visibility",
+        "rain_level", "sea_level", "tide_height"
+    ]
 
-    # Drop unused columns
-    df = df.drop(columns=["local_datetime", "subdistrict_name", "wd", "weather_desc_en"], errors='ignore')
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
     return df
 
-# Example usage
+
+def predict_flood(input_df):
+    """
+    Takes a DataFrame with raw features and returns prediction + probability
+    """
+    # === CLEAN RAW INPUT FIRST ===
+    input_df = clean_input(input_df)
+
+    # === APPLY TRANSFORM PIPELINE ===
+    X = transform_preprocess(input_df, le_subdistrict)
+
+    # === MODEL PREDICT ===
+    prediction = model.predict(X)
+    prob = model.predict_proba(X)[:, 1]
+
+    return prediction, prob
+
+
+# --------------------------
+# MANUAL TESTING EXAMPLE
+# --------------------------
 sample = pd.DataFrame([{
+    "adm4": 3173060004,
     "local_datetime": "2024-01-02 15:00:00",
-    "subdistrict_name": "Kembangan",
+    "subdistrict_name": "Kembangan Utara",   
     "t": 30,
     "hu": 95,
     "ws": 20,
-    "wd": "SE",
+    "wd": "SE",            
     "tcc": 95,
-    "visibility": 1,
-    "rain_level": 4,
-    "sea_level": 1.8,
-    "tide_height": 2.5
-
+    "visibility": "1000",  
+    "rain_level": "2",     
+    "sea_level": 1,
+    "tide_height": 0,
 }])
 
-X_sample = preprocess_input(sample)
-prediction = model.predict(X_sample)
-prob = model.predict_proba(X_sample)[0][1]  # probability of flood
-print(f"Flood prediction: {prediction[0]}, confidence: {prob*100:.1f}%")
-
+pred, prob = predict_flood(sample)
+print(f"Flood prediction: {pred[0]}  |  confidence: {prob[0]*100:.1f}%")

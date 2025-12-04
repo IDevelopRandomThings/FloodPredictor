@@ -1,41 +1,87 @@
 # src/train.py
+
 import pandas as pd
+import joblib
+from xgboost import XGBClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, classification_report
-from xgboost import XGBClassifier
-import joblib
-from preprocess import preprocess
+from preprocess import fit_preprocess
 
-# Load dataset
-df = pd.read_csv("data/flood_dummy_training_data_cleaned.csv")
+# ================================================
+# LOAD DATA
+# ================================================
+df = pd.read_csv("data/flood_training_data_kelurahan.csv")
 
-# Preprocess
-df, le_subdistrict = preprocess(df)
+# ================================================
+# SEPARATE FEATURES & LABEL
+# ================================================
+target_column = "flood"
+y = df[target_column]
+X_raw = df.drop(columns=[target_column])
 
-# Split
-X = df.drop(columns=["flood"])
-y = df["flood"]
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# Train model
+# ================================================
+# PREPROCESS + ENCODER FITTING
+# ================================================
+X, le_kelurahan = fit_preprocess(X_raw)
+
+# Check final feature sample
+print("Sample processed features:")
+print(X.head())
+
+
+# ================================================
+# TRAIN/TEST SPLIT
+# ================================================
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+
+# ================================================
+# TRAIN XGBOOST MODEL
+# ================================================
 model = XGBClassifier(
     n_estimators=200,
     max_depth=6,
-    learning_rate=0.05,
-    subsample=0.8,
-    colsample_bytree=0.8,
+    learning_rate=0.1,
+    subsample=0.9,
+    colsample_bytree=0.9,
     eval_metric="logloss"
 )
-print("Training model...")
-model.fit(X_train, y_train)
-print("Training complete!")
 
-# Evaluate
+model.fit(X_train, y_train)
+
+# ================================================
+# FEATURE IMPORTANCE
+# ================================================
+import numpy as np
+
+feature_names = X.columns
+importances = model.feature_importances_
+
+sorted_idx = np.argsort(importances)[::-1]
+
+print("\n===== FEATURE IMPORTANCE RANKING =====")
+for idx in sorted_idx:
+    print(f"{feature_names[idx]}: {importances[idx]:.4f}")
+
+
+# ================================================
+# EVALUATION
+# ================================================
 y_pred = model.predict(X_test)
-print("\nAccuracy:", accuracy_score(y_test, y_pred))
+accuracy = accuracy_score(y_test, y_pred)
+
+print("\n===== MODEL PERFORMANCE =====")
+print(f"Test Accuracy: {accuracy * 100:.2f}%\n")
+print("Classification Report:")
 print(classification_report(y_test, y_pred))
 
-# Save model & encoder
+
+# ================================================
+# SAVE MODEL + ENCODER
+# ================================================
 joblib.dump(model, "models/flood_xgb_model.pkl")
-joblib.dump(le_subdistrict, "models/subdistrict_encoder.pkl")
-print("Model and encoder saved successfully.")
+joblib.dump(le_kelurahan, "models/kelurahan_encoder.pkl")
+
+print("\nModel and encoder saved successfully.")

@@ -43,6 +43,17 @@ const data = [
     }
 ];
 
+// debug
+console.log('script.js loaded');
+
+const _debugBtn = document.getElementById('checkFlood');
+if (!_debugBtn) {
+    console.error('checkFlood button not found in DOM');
+} else {
+    _debugBtn.addEventListener('click', () => {
+        console.log('checkFlood clicked');
+    });
+}
 // References to dropdowns
 const provinceSelect = document.getElementById("province");
 const citySelect = document.getElementById("city");
@@ -123,18 +134,64 @@ districtSelect.addEventListener("change", () => {
     subdistrictSelect.disabled = false;
 });
 
-// Button click for future backend integration
-document.getElementById("checkFlood").addEventListener("click", () => {
-    const province = provinceSelect.value;
-    const city = citySelect.value;
-    const district = districtSelect.value;
-    const subdistrict = subdistrictSelect.value;
+// ...existing code...
+document.getElementById("checkFlood").addEventListener("click", async () => {
+    // use option text (displayed/canonical name) instead of option value (which was ADM code)
+    const province = provinceSelect.options[provinceSelect.selectedIndex]?.text.trim() || provinceSelect.value;
+    const city = citySelect.options[citySelect.selectedIndex]?.text.trim() || citySelect.value;
+    const district = districtSelect.options[districtSelect.selectedIndex]?.text.trim() || districtSelect.value;
+    const subdistrict = subdistrictSelect.options[subdistrictSelect.selectedIndex]?.text.trim() || subdistrictSelect.value; // canonical kelurahan
 
     if (!province || !city || !district || !subdistrict) {
         resultsDiv.textContent = "Please select all fields!";
         return;
     }
 
-    resultsDiv.textContent = `Selected: ${province} / ${city} / ${district} / ${subdistrict}`;
-    // Here, you can call your backend API to get prediction
+    resultsDiv.textContent = "Requesting backend prediction...";
+
+    try {
+        const resp = await fetch("http://localhost:5000/predict", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ kelurahan: subdistrict, province, city, district })
+        });
+
+        if (!resp.ok) {
+            const txt = await resp.text().catch(() => "");
+            throw new Error(`Server ${resp.status}: ${txt}`);
+        }
+
+        const json = await resp.json();
+        if (json.error) {
+            resultsDiv.textContent = `Backend error: ${json.error}`;
+            return;
+        }
+
+        const rows = json.results || [];
+        if (rows.length === 0) {
+            resultsDiv.innerHTML = `<strong>No results for ${subdistrict}</strong>`;
+            return;
+        }
+
+        let html = `<h3>Predictions for ${subdistrict}</h3><div class="pred-list">`;
+        rows.forEach((r, i) => {
+            html += `
+                <div class="pred-item">
+                    <strong>Forecast ${i+1}</strong>
+                    <div>Date/Time: ${r.datetime}</div>
+                    <div>Weather: ${r.weather ?? "-"}</div>
+                    <div>Temperature: ${r.temperature ?? "-"} °C</div>
+                    <div>Humidity: ${r.humidity ?? "-"}%</div>
+                    <div>Flood Predicted: ${r.flood_prediction === 1 ? "YES" : "NO"}</div>
+                    <div>Flood Prob: ${r.probability !== null ? (Number(r.probability).toFixed(1) + "%") : "-"}</div>
+                </div><hr/>`;
+        });
+        html += `</div>`;
+        resultsDiv.innerHTML = html;
+    } catch (err) {
+        console.error(err);
+        resultsDiv.textContent = "Error getting prediction. Open DevTools Console for details.";
+    }
 });
+// ...existing code...
+

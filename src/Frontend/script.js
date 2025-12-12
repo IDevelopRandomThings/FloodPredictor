@@ -1,138 +1,8 @@
-// Dummy hierarchical data for testing (replace with AMD4 CSV / backend API)
-const data = [
-    {
-        province: "DKI Jakarta",
-        cities: [
-            {
-                city: "Jakarta Barat",
-                districts: [
-                    {
-                        district: "Kembangan",
-                        subdistricts: ["Kembangan Utara", "Kembangan Selatan"]
-                    },
-                    {
-                        district: "Grogol Petamburan",
-                        subdistricts: ["Grogol", "Tomang"]
-                    }
-                ]
-            },
-            {
-                city: "Jakarta Pusat",
-                districts: [
-                    {
-                        district: "Gambir",
-                        subdistricts: ["Gambir Utara", "Gambir Selatan"]
-                    }
-                ]
-            }
-        ]
-    },
-    {
-        province: "Jawa Barat",
-        cities: [
-            {
-                city: "Bandung",
-                districts: [
-                    {
-                        district: "Coblong",
-                        subdistricts: ["Dago", "Lebakgede"]
-                    }
-                ]
-            }
-        ]
-    }
-];
-
-// debug
-console.log('script.js loaded');
-
-const _debugBtn = document.getElementById('checkFlood');
-if (!_debugBtn) {
-    console.error('checkFlood button not found in DOM');
-} else {
-    _debugBtn.addEventListener('click', () => {
-        console.log('checkFlood clicked');
-    });
-}
-// References to dropdowns
 const provinceSelect = document.getElementById("province");
 const citySelect = document.getElementById("city");
 const districtSelect = document.getElementById("district");
 const subdistrictSelect = document.getElementById("subdistrict");
 const resultsDiv = document.getElementById("results");
-
-// Populate provinces
-data.forEach(p => {
-    const opt = document.createElement("option");
-    opt.value = p.province;
-    opt.textContent = p.province;
-    provinceSelect.appendChild(opt);
-});
-
-// On province change
-provinceSelect.addEventListener("change", () => {
-    citySelect.innerHTML = '<option value="">Select City</option>';
-    districtSelect.innerHTML = '<option value="">Select District</option>';
-    subdistrictSelect.innerHTML = '<option value="">Select Subdistrict</option>';
-    districtSelect.disabled = true;
-    subdistrictSelect.disabled = true;
-
-    const selectedProvince = data.find(p => p.province === provinceSelect.value);
-    if (!selectedProvince) {
-        citySelect.disabled = true;
-        return;
-    }
-
-    selectedProvince.cities.forEach(c => {
-        const opt = document.createElement("option");
-        opt.value = c.city;
-        opt.textContent = c.city;
-        citySelect.appendChild(opt);
-    });
-    citySelect.disabled = false;
-});
-
-// On city change
-citySelect.addEventListener("change", () => {
-    districtSelect.innerHTML = '<option value="">Select District</option>';
-    subdistrictSelect.innerHTML = '<option value="">Select Subdistrict</option>';
-    subdistrictSelect.disabled = true;
-
-    const selectedProvince = data.find(p => p.province === provinceSelect.value);
-    const selectedCity = selectedProvince.cities.find(c => c.city === citySelect.value);
-    if (!selectedCity) {
-        districtSelect.disabled = true;
-        return;
-    }
-
-    selectedCity.districts.forEach(d => {
-        const opt = document.createElement("option");
-        opt.value = d.district;
-        opt.textContent = d.district;
-        districtSelect.appendChild(opt);
-    });
-    districtSelect.disabled = false;
-});
-
-// On district change
-districtSelect.addEventListener("change", () => {
-    subdistrictSelect.innerHTML = '<option value="">Select Subdistrict</option>';
-    const selectedProvince = data.find(p => p.province === provinceSelect.value);
-    const selectedCity = selectedProvince.cities.find(c => c.city === citySelect.value);
-    const selectedDistrict = selectedCity.districts.find(d => d.district === districtSelect.value);
-    if (!selectedDistrict) {
-        subdistrictSelect.disabled = true;
-        return;
-    }
-
-    selectedDistrict.subdistricts.forEach(s => {
-        const opt = document.createElement("option");
-        opt.value = s;
-        opt.textContent = s;
-        subdistrictSelect.appendChild(opt);
-    });
-    subdistrictSelect.disabled = false;
-});
 
 // ...existing code...
 document.getElementById("checkFlood").addEventListener("click", async () => {
@@ -193,5 +63,116 @@ document.getElementById("checkFlood").addEventListener("click", async () => {
         resultsDiv.textContent = "Error getting prediction. Open DevTools Console for details.";
     }
 });
-// ...existing code...
+// remove or replace the hardcoded `data` and population logic with runtime fetch
+
+async function loadAreas() {
+    resultsDiv.textContent = "Loading area list...";
+    try {
+        const resp = await fetch("http://localhost:5000/areas");
+        if (!resp.ok) {
+            const txt = await resp.text().catch(() => "");
+            throw new Error(`Server ${resp.status}: ${txt}`);
+        }
+        const json = await resp.json();
+        const provinceList = json.provinceList || [];
+
+        // clear selects
+        provinceSelect.innerHTML = '<option value="">Select Province</option>';
+        citySelect.innerHTML = '<option value="">Select City</option>';
+        districtSelect.innerHTML = '<option value="">Select District</option>';
+        subdistrictSelect.innerHTML = '<option value="">Select Subdistrict</option>';
+        citySelect.disabled = true;
+        districtSelect.disabled = true;
+        subdistrictSelect.disabled = true;
+
+        provinceList.forEach(p => {
+            const opt = document.createElement("option");
+            opt.value = p.province;
+            opt.textContent = p.province;
+            provinceSelect.appendChild(opt);
+        });
+
+        // store the structure for client-side use
+        window.__AREA_TREE = provinceList;
+        resultsDiv.textContent = "";
+    } catch (err) {
+        console.error(err);
+        resultsDiv.textContent = "Failed to load areas. Make sure backend is running and /areas is available.";
+    }
+}
+
+// helper to get data arrays from loaded tree
+function getCitiesForProvince(province) {
+    const tree = window.__AREA_TREE || [];
+    const p = tree.find(x => x.province === province);
+    return p ? p.cities : [];
+}
+function getDistrictsForProvinceCity(province, city) {
+    const cities = getCitiesForProvince(province);
+    const c = cities.find(x => x.city === city);
+    return c ? c.districts : [];
+}
+
+// wire selects (replace previous event listeners)
+provinceSelect.addEventListener("change", () => {
+    citySelect.innerHTML = '<option value="">Select City</option>';
+    districtSelect.innerHTML = '<option value="">Select District</option>';
+    subdistrictSelect.innerHTML = '<option value="">Select Subdistrict</option>';
+    districtSelect.disabled = true;
+    subdistrictSelect.disabled = true;
+
+    const cities = getCitiesForProvince(provinceSelect.value);
+    if (!cities || cities.length === 0) {
+        citySelect.disabled = true;
+        return;
+    }
+    cities.forEach(c => {
+        const opt = document.createElement("option");
+        opt.value = c.city;
+        opt.textContent = c.city;
+        citySelect.appendChild(opt);
+    });
+    citySelect.disabled = false;
+});
+
+citySelect.addEventListener("change", () => {
+    districtSelect.innerHTML = '<option value="">Select District</option>';
+    subdistrictSelect.innerHTML = '<option value="">Select Subdistrict</option>';
+    subdistrictSelect.disabled = true;
+
+    const districts = getDistrictsForProvinceCity(provinceSelect.value, citySelect.value);
+    if (!districts || districts.length === 0) {
+        districtSelect.disabled = true;
+        return;
+    }
+    districts.forEach(d => {
+        const opt = document.createElement("option");
+        opt.value = d.district;
+        opt.textContent = d.district;
+        districtSelect.appendChild(opt);
+    });
+    districtSelect.disabled = false;
+});
+
+districtSelect.addEventListener("change", () => {
+    subdistrictSelect.innerHTML = '<option value="">Select Subdistrict</option>';
+    const districts = getDistrictsForProvinceCity(provinceSelect.value, citySelect.value);
+    const d = districts.find(x => x.district === districtSelect.value);
+    if (!d || !d.subdistricts) {
+        subdistrictSelect.disabled = true;
+        return;
+    }
+    d.subdistricts.forEach(s => {
+        const opt = document.createElement("option");
+        // keep option.value as canonical name (use name) and you can also attach adm4 if needed
+        opt.value = s.name;
+        opt.textContent = s.name;
+        opt.dataset.adm4 = s.adm4 || "";
+        subdistrictSelect.appendChild(opt);
+    });
+    subdistrictSelect.disabled = false;
+});
+
+// call loader at startup
+loadAreas();
 

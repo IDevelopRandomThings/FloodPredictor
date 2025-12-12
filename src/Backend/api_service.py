@@ -2,6 +2,8 @@ import pandas as pd
 import difflib
 import unicodedata
 import re
+from pathlib import Path
+import json
 
 ADM_TABLE = pd.read_csv("data/AreaCodes.csv")
 
@@ -102,6 +104,73 @@ def predict_route():
         })
 
     return jsonify({"kelurahan": canonical_kelurahan, "adm4": adm4, "results": safe}), 200
+
+def _detect_columns(df):
+    cols = {c.lower(): c for c in df.columns}
+    def find(candidates):
+        for cand in candidates:
+            for k, orig in cols.items():
+                if cand in k:
+                    return orig
+        return None
+    return {
+        "province": find(["prov", "province"]),
+        "city": find(["kab", "city", "regency", "kabupaten", "kota"]),
+        "district": find(["kec", "district", "kecamatan"]),
+        "kelurahan": find(["kel", "kelurahan", "village", "subdistrict"]),
+        "adm4": find(["adm4", "adm_4", "adm4_code"])
+    }
+
+@app.route("/areas", methods=["GET"])
+def areas_route():
+    """
+    Return hierarchical area structure derived from data/AreaCodes.csv.
+    Response JSON:
+    { "provinceList": [ { province, cities: [ { city, districts: [ { district, subdistricts: [ { name, adm4 } ] } ] } ] } ] }
+    """
+    try:
+        cols = _detect_columns(ADM_TABLE)
+        if not cols["kelurahan"] or not cols["adm4"]:
+            # fallback: return raw table if detection failed
+            return jsonify({"error": "AreaCodes.csv missing expected columns", "columns": list(ADM_TABLE.columns)}), 500
+
+        tree = {}
+        for _, row in ADM_TABLE.iterrows():
+            prov = row.get(cols["province"], "") or ""
+            city = row.get(cols["city"], "") or ""
+            dist = row.get(cols["district"], "") or ""
+            kel = row.get(cols["kelurahan"], "") or ""
+            adm4 = row.get(cols["adm4"], "")
+            prov_k = str(prov).strip()
+            city_k = str(city).strip()
+            dist_k = str(dist).strip()
+            kel_k = str(kel).strip()
+
+            tree.setdefault(prov_k, {})
+            tree[prov_k].setdefault(city_k, {})
+            tree[prov_k][city_k].setdefault(dist_k, {})
+            # store list of objects with name and adm4
+            lst = tree[prov_k][city_k][dist_k].setdefault("subdistricts", [])
+            # avoid duplicates
+            if not any(x.get("name") == kel_k for x in lst):
+                lst.append({"name": kel_k, "adm4": str(adm4)})
+
+        result = []
+        for prov, cities in tree.items():
+            prov_obj = {"province": prov, "cities": []}
+            for city, dists in cities.items():
+                city_obj = {"city": city, "districts": []}
+                for dist, info in dists.items():
+                    city_obj["districts"].append({
+                        "district": dist,
+                        "subdistricts": info.get("subdistricts", [])
+                    })
+                prov_obj["cities"].append(city_obj)
+            result.append(prov_obj)
+
+        return jsonify({"provinceList": result}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     # run backend: python "src\Backend\api_service.py"
